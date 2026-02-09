@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Bounded Coordinate Map</title>
+<title>Bounded Coordinate Map (X / Z)</title>
 
 <style>
   body {
@@ -43,7 +43,7 @@
 </head>
 <body>
 
-<div id="coords">X: 0 | Y: 0</div>
+<div id="coords">X: 0 | Z: 0</div>
 <button id="export">Export Pins</button>
 <canvas id="canvas"></canvas>
 
@@ -81,42 +81,40 @@ let lastY = 0;
 const pins = [];
 
 /* =========================
-   Image loading (CRITICAL)
+   Image
 ========================= */
 const mapImage = new Image();
 let imageLoaded = false;
 
-mapImage.onload = () => {
-  imageLoaded = true;
-};
-
-mapImage.src = "map.png"; // MUST be same folder
+mapImage.onload = () => imageLoaded = true;
+mapImage.src = "map.png";
 
 /* =========================
    Coordinate transforms
+   (Z POSITIVE = DOWN)
 ========================= */
-function worldToScreen(x, y) {
+function worldToScreen(x, z) {
   return {
     x: offsetX + x * scale,
-    y: offsetY - y * scale
+    y: offsetY + z * scale
   };
 }
 
 function screenToWorld(x, y) {
   return {
     x: (x - offsetX) / scale,
-    y: (offsetY - y) / scale
+    z: (y - offsetY) / scale
   };
 }
 
 /* =========================
-   Clamp camera to map
+   Clamp camera
 ========================= */
 function clampCamera() {
   const left   = worldToScreen(-MAP_HALF_WIDTH, 0).x;
   const right  = worldToScreen( MAP_HALF_WIDTH, 0).x;
-  const top    = worldToScreen(0,  MAP_HALF_HEIGHT).y;
-  const bottom = worldToScreen(0, -MAP_HALF_HEIGHT).y;
+  const top    = worldToScreen(0, -MAP_HALF_HEIGHT).y;
+  const bottom = worldToScreen(0,  MAP_HALF_HEIGHT).y;
 
   if (left > 0) offsetX -= left;
   if (right < canvas.width) offsetX += canvas.width - right;
@@ -125,7 +123,7 @@ function clampCamera() {
 }
 
 /* =========================
-   Minimum zoom (NO ESCAPE)
+   Min zoom
 ========================= */
 function minScaleToFit() {
   return Math.max(
@@ -140,8 +138,8 @@ function minScaleToFit() {
 function drawMapImage() {
   if (!imageLoaded) return;
 
-  const tl = worldToScreen(-MAP_HALF_WIDTH,  MAP_HALF_HEIGHT);
-  const br = worldToScreen( MAP_HALF_WIDTH, -MAP_HALF_HEIGHT);
+  const tl = worldToScreen(-MAP_HALF_WIDTH, -MAP_HALF_HEIGHT);
+  const br = worldToScreen( MAP_HALF_WIDTH,  MAP_HALF_HEIGHT);
 
   ctx.drawImage(
     mapImage,
@@ -165,8 +163,8 @@ function drawGrid() {
     ctx.stroke();
   }
 
-  for (let y = -MAP_HALF_HEIGHT; y <= MAP_HALF_HEIGHT; y += step) {
-    const sy = worldToScreen(0, y).y;
+  for (let z = -MAP_HALF_HEIGHT; z <= MAP_HALF_HEIGHT; z += step) {
+    const sy = worldToScreen(0, z).y;
     ctx.beginPath();
     ctx.moveTo(0, sy);
     ctx.lineTo(canvas.width, sy);
@@ -194,52 +192,52 @@ function drawAxes() {
 function drawPins() {
   ctx.fillStyle = "red";
   pins.forEach(p => {
-    const s = worldToScreen(p.x, p.y);
+    const s = worldToScreen(p.x, p.z);
     ctx.beginPath();
     ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
     ctx.fill();
   });
 }
 
-function removeNearestPin(worldX, worldY) {
-  const REMOVE_RADIUS = 200; // world units
-
-  let closestIndex = -1;
-  let closestDist = Infinity;
+/* =========================
+   Remove pin
+========================= */
+function removeNearestPin(x, z) {
+  const R = 200;
+  let best = -1;
+  let bestD = Infinity;
 
   pins.forEach((p, i) => {
-    const dx = p.x - worldX;
-    const dy = p.y - worldY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist < closestDist) {
-      closestDist = dist;
-      closestIndex = i;
+    const d = Math.hypot(p.x - x, p.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
     }
   });
 
-  if (closestDist <= REMOVE_RADIUS && closestIndex !== -1) {
-    pins.splice(closestIndex, 1);
+  if (best !== -1 && bestD <= R) {
+    pins.splice(best, 1);
   }
 }
 
-
+/* =========================
+   Render loop
+========================= */
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawMapImage();
   drawGrid();
   drawAxes();
   drawPins();
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // Opera GX repaint fix
   requestAnimationFrame(render);
 }
 
 /* =========================
-   Mouse events
+   Mouse
 ========================= */
 canvas.addEventListener("mousemove", e => {
   const w = screenToWorld(e.clientX, e.clientY);
-  coords.textContent = `X: ${Math.round(w.x)} | Y: ${Math.round(w.y)}`;
+  coords.textContent = `X: ${Math.round(w.x)} | Z: ${Math.round(w.z)}`;
 
   if (isPanning) {
     offsetX += e.clientX - lastX;
@@ -265,22 +263,20 @@ canvas.addEventListener("click", e => {
   const w = screenToWorld(e.clientX, e.clientY);
   if (
     w.x >= -MAP_HALF_WIDTH && w.x <= MAP_HALF_WIDTH &&
-    w.y >= -MAP_HALF_HEIGHT && w.y <= MAP_HALF_HEIGHT
+    w.z >= -MAP_HALF_HEIGHT && w.z <= MAP_HALF_HEIGHT
   ) {
-    pins.push({ x: Math.round(w.x), y: Math.round(w.y) });
+    pins.push({ x: Math.round(w.x), z: Math.round(w.z) });
   }
 });
 
 canvas.addEventListener("contextmenu", e => {
-  e.preventDefault(); // stop browser menu
-
-  const world = screenToWorld(e.clientX, e.clientY);
-  removeNearestPin(world.x, world.y);
+  e.preventDefault();
+  const w = screenToWorld(e.clientX, e.clientY);
+  removeNearestPin(w.x, w.z);
 });
 
-
 /* =========================
-   Cursor-centered zoom
+   Zoom
 ========================= */
 canvas.addEventListener("wheel", e => {
   e.preventDefault();
@@ -294,17 +290,17 @@ canvas.addEventListener("wheel", e => {
   const after = screenToWorld(e.clientX, e.clientY);
 
   offsetX += (after.x - before.x) * scale;
-  offsetY -= (after.y - before.y) * scale;
+  offsetY += (after.z - before.z) * scale;
 
   clampCamera();
 }, { passive: false });
 
 /* =========================
-   Export pins
+   Export
 ========================= */
 document.getElementById("export").addEventListener("click", () => {
   const text = pins
-    .map((p, i) => `Pin ${i + 1}: X=${p.x}, Y=${p.y}`)
+    .map((p, i) => `Pin ${i + 1}: X=${p.x}, Z=${p.z}`)
     .join("\n");
 
   navigator.clipboard.writeText(text);
@@ -323,6 +319,5 @@ window.addEventListener("resize", () => {
 
 render();
 </script>
-
 </body>
 </html>
